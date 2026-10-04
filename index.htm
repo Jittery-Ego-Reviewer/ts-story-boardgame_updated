@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🗣️ 之音大挑戰 🎲</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Varela+Round&display=swap');
+        
+        body {
+            font-family: 'Varela Round', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #FEF9E7; /* 奶油黃背景 */
+            user-select: none;
+            overflow-x: hidden;
+        }
+
+        /* 隱藏滾動條但保留功能 */
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+
+        .board-cell {
+            position: relative;
+            border: 2px solid #FAD7A1;
+            border-radius: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            padding: 2px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+            aspect-ratio: 1 / 1; /* 強制長闊比為 1:1，保持正方形 */
+            overflow: hidden; /* 防止內容（棋子）過多時撐大格子 */
+        }
+
+        .cell-number {
+            position: absolute;
+            top: 2px;
+            left: 4px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #D4AC0D;
+            opacity: 0.8;
+            line-height: 1;
+        }
+
+        /* 特殊格子顏色 */
+        .bg-challenge { background-color: #FADBD8; border-color: #F5B7B1; } /* 淺紅/粉紅 */
+        .bg-trap { background-color: #E8DAEF; border-color: #D2B4DE; } /* 淺紫 */
+        .bg-normal { background-color: #FCF3CF; } /* 淺黃 */
+        .bg-start { background-color: #D5F5E3; } /* 淺綠 */
+        .bg-end { background-color: #FDEBD0; background-image: radial-gradient(#F5CBA7 20%, transparent 20%); background-size: 10px 10px; }
+
+        .piece {
+            font-size: 1.5rem; /* 稍微縮小以更好地適應格子 */
+            line-height: 1;
+            filter: drop-shadow(0 3px 2px rgba(0,0,0,0.3));
+            transition: transform 0.3s ease;
+            z-index: 10;
+            margin: 1px;
+        }
+        
+        /* 手機螢幕上自動縮小棋子，確保多個玩家重疊時也不會變形 */
+        @media (max-width: 500px) {
+            .piece { font-size: 1.1rem; margin: 0px; }
+            .cell-number { font-size: 0.6rem; top: 1px; left: 2px; }
+        }
+
+        @keyframes hop {
+            0% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-20px) scale(1.2); }
+            100% { transform: translateY(0) scale(1); }
+        }
+        .hopping {
+            animation: hop 0.4s ease-in-out;
+        }
+
+        /* 震動骰子動畫 */
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-10deg); }
+            20% { transform: translate(-3px, 0px) rotate(10deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(10deg); }
+            50% { transform: translate(-1px, 2px) rotate(-10deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-10deg); }
+            80% { transform: translate(-1px, -1px) rotate(10deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-10deg); }
+        }
+        .shaking {
+            animation: shake 0.5s;
+        }
+
+        /* UI 元素 */
+        .emoji-btn {
+            font-size: 2rem;
+            cursor: pointer;
+            transition: transform 0.2s;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .emoji-btn:hover { transform: scale(1.1); }
+        .emoji-btn.selected { background: #F9E79F; border: 4px solid #D4AC0D; transform: scale(1.1); }
+        .emoji-btn.disabled { opacity: 0.3; cursor: not-allowed; filter: grayscale(100%); }
+
+        .btn-primary {
+            background: linear-gradient(145deg, #F9E79F, #F1C40F);
+            color: #7D6608;
+            font-weight: bold;
+            border-radius: 9999px;
+            box-shadow: 0 4px 15px rgba(241, 196, 15, 0.4);
+            transition: all 0.2s;
+        }
+        .btn-primary:active { transform: scale(0.95); box-shadow: 0 2px 5px rgba(241, 196, 15, 0.4); }
+
+        .modal-overlay {
+            background-color: rgba(253, 242, 233, 0.85);
+            backdrop-filter: blur(5px);
+        }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr); /* 強制8行高度均等 */
+            gap: 4px;
+            width: 100%;
+            max-width: 600px;
+            aspect-ratio: 1 / 1;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- 遊戲設定畫面 -->
+    <div id="setup-screen" class="w-full max-w-2xl bg-white rounded-3xl shadow-xl p-8 text-center flex flex-col gap-6">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-amber-600 drop-shadow-md mb-2">🗣️ 之音大挑戰 🎲</h1>
+        
+        <div class="flex justify-center items-center gap-4 text-2xl font-bold text-amber-800">
+            👥
+            <button id="btn-2p" class="btn-primary px-6 py-2 border-4 border-amber-500 scale-110" onclick="setPlayerCount(2)">2</button>
+            <button id="btn-3p" class="btn-primary px-6 py-2 opacity-70" onclick="setPlayerCount(3)">3</button>
+        </div>
+
+        <div id="player-setup-areas" class="flex flex-col gap-6 mt-4">
+            <!-- 玩家設定區將由JS動態生成 -->
+        </div>
+
+        <button onclick="startGame()" class="btn-primary mt-6 text-3xl px-12 py-4 flex items-center justify-center gap-2 mx-auto">
+            ▶️
+        </button>
+    </div>
+
+    <!-- 主要遊戲畫面 -->
+    <div id="game-screen" class="w-full max-w-4xl hidden flex-col items-center">
+        
+        <div class="w-full flex justify-between items-center mb-4 px-4 bg-white/60 rounded-2xl p-2 shadow-sm">
+            <h1 class="text-2xl font-bold text-amber-600 hidden md:block">🗣️ 發音大挑戰 🎲</h1>
+            <div id="turn-indicator" class="text-3xl font-bold bg-white px-6 py-2 rounded-full shadow text-amber-800 flex items-center gap-2 transition-all">
+                <!-- 輪到誰 -->
+            </div>
+            <button onclick="location.reload()" class="text-2xl bg-white p-2 rounded-full shadow hover:bg-gray-100">🔄</button>
+        </div>
+
+        <!-- 棋盤 -->
+        <div id="board" class="bg-amber-100 p-2 rounded-2xl shadow-lg border-4 border-amber-300">
+            <!-- 格子將由JS動態生成 -->
+        </div>
+
+        <!-- 底部操作區 -->
+        <div class="mt-6 flex flex-col items-center gap-4">
+            <div id="dice-container" class="cursor-pointer bg-white rounded-3xl p-6 shadow-xl border-b-8 border-amber-200 hover:-translate-y-1 transition-transform" onclick="rollDice()">
+                <div id="dice-emoji" class="text-7xl drop-shadow-md">🎲</div>
+            </div>
+            <div id="dice-result" class="text-3xl font-bold text-amber-700 h-10"></div>
+        </div>
+    </div>
+
+    <!-- 挑戰彈窗 -->
+    <div id="challenge-modal" class="fixed inset-0 modal-overlay z-50 hidden flex justify-center items-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl p-6 md:p-8 max-w-md w-full text-center border-8 border-red-200 transform transition-transform scale-95">
+            <div class="text-6xl mb-2 animate-bounce">🔥</div>
+            
+            <div id="challenge-text" class="text-2xl font-bold text-gray-800 mb-6 bg-red-50 p-4 rounded-xl shadow-inner">
+                <!-- 挑戰內容 -->
+            </div>
+
+            <div class="mb-6">
+                <div class="text-lg text-amber-600 font-bold mb-2 flex justify-center gap-2">🗣️ <span class="bg-amber-200 h-1 flex-grow my-auto rounded"></span></div>
+                <div id="target-words" class="flex flex-wrap justify-center gap-2">
+                    <!-- 字詞將動態生成 -->
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3 mt-8">
+                <button onclick="resolveChallenge(true)" class="btn-primary py-4 px-6 text-xl text-white bg-gradient-to-r from-green-400 to-green-600 shadow-green-200">
+                    完成挑戰及練習 (+1 🚀)
+                </button>
+                <button onclick="resolveChallenge(false)" class="bg-gray-100 text-gray-600 font-bold py-3 px-6 rounded-full hover:bg-gray-200 transition-colors">
+                    只完成其中一項 (✔️)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 陷阱彈窗 -->
+    <div id="trap-modal" class="fixed inset-0 modal-overlay z-50 hidden flex justify-center items-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full text-center border-8 border-purple-200">
+            <div class="text-7xl mb-4 animate-pulse">🕳️</div>
+            <div id="trap-text" class="text-5xl font-extrabold text-purple-600 mb-8">
+                -3
+            </div>
+            <button onclick="resolveTrap()" class="btn-primary py-3 px-10 text-2xl">
+                ✔️
+            </button>
+        </div>
+    </div>
+
+    <!-- 勝利彈窗 -->
+    <div id="win-modal" class="fixed inset-0 modal-overlay z-50 hidden flex justify-center items-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full text-center border-8 border-yellow-300">
+            <div class="text-7xl mb-4 animate-bounce">👑</div>
+            <div id="winner-emoji" class="text-8xl mb-4">🏆</div>
+            <button onclick="location.reload()" class="btn-primary mt-6 py-3 px-10 text-2xl">
+                🔄
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // 資料庫
+        const EMOJIS = ['🎃','👽','👻','💩','🐷','🦄','🐼','🐰','🐨','🐻','🐹','🐱','🦊','🐶','🐵','🦉','🐥','🐧','🐌','🕷️','🧸','🍕','⛄','😎'];
+        
+        const CHALLENGES_DB = [
+            "唱一首歌（唔可以係有隻雀仔跌落水）",
+            "猜一個謎語：身體長長，兄弟成雙；只會吃菜，不會喝湯",
+            "猜一個謎語：駝背哥哥，牙齒多多，從你頭上，輕輕走過",
+            "心如刀割（猜一字）",
+            "背誦一首詩（可以是靜夜詩）",
+            "講一個笑話",
+            "説説自己的興趣",
+            "説説最近數學堂學的東西",
+            "説説最近英文堂學的東西",
+            "説説最近中文堂學的東西",
+            "説説最近科學堂學的東西",
+            "跳一隻舞",
+            "擺出三個拍攝姿勢",
+            "暫停一輪",
+            "扮企鵝行路（走5步）",
+            "單腳站立10秒",
+            "分享今天開心的事",
+            "用英文説出三種水果名（不可以是Apple）",
+            "説一個秘密",
+            "原地跳 X 吓（不可以有聲）",
+            "單腳跳 X 吓（不可以有聲）",
+            "合埋眼摸自己個鼻 X 次",
+            "用雙手整 X 種唔同嘅聲音",
+            "扮猩猩",
+            "單手整 X 種唔同嘅聲音",
+            "扮整pizza（起碼要有3個步驟）",
+            "放一樣東西喺頭上面，保持平衡 X 秒",
+            "扮螃蟹打橫行 X 步",
+            "鴨仔跳 X 吓",
+            "扮刷牙（由洗牙刷開始)",
+            "數學題：11 x 11 = ?",
+            "數學題：12 x 12 = ?",
+            "數學題：13 x 13 = ?",
+            "星星跳 X 吓",
+            "喺你依家嘅位置成功掉垃圾落垃圾桶入面（1次機會）",
+            "喺呢度揾3樣藍色嘅嘢",
+            "喺呢度揾3樣橙色嘅嘢",
+            "喺呢度揾3樣紅色嘅嘢",
+            "喺呢度揾3樣黃色嘅嘢",
+            "喺呢度揾3樣綠色嘅嘢",
+            "轉3個圈行直線",
+            "下一次見到昆蟲要負責去捉",
+            "唔准眨眼10秒",
+            "吸一啖氣，啊20秒"
+        ];
+
+        const WORDS_DB = [
+            '𐀪 自己', '直接', '知道', '張保仔', '💳 支付', '🏃 追逐', '✨ 乾淨', '📌 責任', 
+            '🥋 絕招', '🍚 煮飯', '🎯 專心', '🤫 安靜', '整', '🖼️ 展覽', '✂️ 剪', '🍳 煎', 
+            '🔺 尖', '🦶 腳趾', '知', '🎯 準確', '🕳️ 井', '🌌 宇宙', '🥤 汁', '🌊 水浸', 
+            '🍤 炸', '🎋 竹', '🪡 針', '💎 鑽石', '💍 鑽石戒指', '⚽ 足球', '🪁 風箏', 
+            '💣 炸彈', '⏰ 鬧鐘', '🧭 指南針', '🗽 自由神像', '🌳 樹枝', '🔮 水晶', '🐾 爪', 
+            '👀 眼睛', '🕵️ 偵探', '🚶‍➡️ 走路', '🧘 打坐', '🤳 自拍', '捉', '❤️ 心臟', 
+            '💄 化妝', '張先生', '座位', '👄 嘴巴', '🙏 謝謝', '📖 溫習', '🐷 豬', 
+            '🐖 三隻豬', '🐗 野豬', '🐥 雞仔', '🪳 曱甴', '🕷️ 蜘蛛', '🕸️ 蜘蛛網', 
+            '🦂 蠍子', '💅 指甲'
+        ];
+
+        // 遊戲狀態
+        let playerCount = 2;
+        let players = [];
+        let boardMap = []; // 64格陣列
+        let currentPlayerIndex = 0;
+        let isMoving = false;
+        let isTrapAction = false; // 標記是否正在處理陷阱後退
+
+        // 初始化設定畫面
+        function initSetup() {
+            renderPlayerSetup();
+        }
+
+        function setPlayerCount(count) {
+            playerCount = count;
+            document.getElementById('btn-2p').classList.toggle('opacity-70', count !== 2);
+            document.getElementById('btn-2p').classList.toggle('border-4', count === 2);
+            document.getElementById('btn-2p').classList.toggle('border-amber-500', count === 2);
+            document.getElementById('btn-2p').classList.toggle('scale-110', count === 2);
+            
+            document.getElementById('btn-3p').classList.toggle('opacity-70', count !== 3);
+            document.getElementById('btn-3p').classList.toggle('border-4', count === 3);
+            document.getElementById('btn-3p').classList.toggle('border-amber-500', count === 3);
+            document.getElementById('btn-3p').classList.toggle('scale-110', count === 3);
+            
+            renderPlayerSetup();
+        }
+
+        function renderPlayerSetup() {
+            const container = document.getElementById('player-setup-areas');
+            container.innerHTML = '';
+            players = []; // 重置
+
+            for (let i = 0; i < playerCount; i++) {
+                players.push({ id: i, emoji: null, pos: 1 }); // 預設pos 1
+
+                const div = document.createElement('div');
+                div.className = 'bg-amber-50 p-4 rounded-2xl text-left border-2 border-amber-100';
+                
+                const title = document.createElement('div');
+                title.className = 'text-xl font-bold text-amber-700 mb-2 flex items-center gap-2';
+                title.innerHTML = `👤 ${i + 1}`;
+                
+                const grid = document.createElement('div');
+                grid.className = 'grid grid-cols-6 md:grid-cols-12 gap-2';
+
+                EMOJIS.forEach(e => {
+                    const btn = document.createElement('div');
+                    btn.className = 'emoji-btn bg-white text-2xl';
+                    btn.innerText = e;
+                    btn.onclick = () => selectEmoji(i, e, btn, grid);
+                    grid.appendChild(btn);
+                });
+
+                div.appendChild(title);
+                div.appendChild(grid);
+                container.appendChild(div);
+            }
+        }
+
+        function selectEmoji(playerIndex, emoji, btnElement, gridElement) {
+            // 檢查是否已被其他人選擇
+            if (players.some((p, idx) => idx !== playerIndex && p.emoji === emoji)) return;
+
+            players[playerIndex].emoji = emoji;
+
+            // 更新UI
+            Array.from(gridElement.children).forEach(child => child.classList.remove('selected'));
+            btnElement.classList.add('selected');
+
+            updateEmojiAvailability();
+        }
+
+        function updateEmojiAvailability() {
+            const selectedEmojis = players.map(p => p.emoji).filter(e => e !== null);
+            const allBtns = document.querySelectorAll('.emoji-btn');
+            
+            allBtns.forEach(btn => {
+                const e = btn.innerText;
+                if (selectedEmojis.includes(e) && !btn.classList.contains('selected')) {
+                    btn.classList.add('disabled');
+                } else {
+                    btn.classList.remove('disabled');
+                }
+            });
+        }
+
+        function startGame() {
+            if (players.some(p => p.emoji === null)) {
+                // 如果未選齊，輕微震動提示
+                const container = document.getElementById('player-setup-areas');
+                container.classList.add('shaking');
+                setTimeout(() => container.classList.remove('shaking'), 500);
+                return;
+            }
+
+            document.getElementById('setup-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            document.getElementById('game-screen').classList.add('flex');
+
+            generateBoardData();
+            renderBoard();
+            updateTurnIndicator();
+        }
+
+        function generateBoardData() {
+            // 總共64格 (1-64)。第1格是起點，第64格是終點
+            // 需要 50 個挑戰 (challenge)，12 個陷阱 (trap) 總共62格分佈在 2-63
+            let types = Array(50).fill('challenge').concat(Array(12).fill('trap'));
+            
+            // 洗牌演算法
+            for (let i = types.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [types[i], types[j]] = [types[j], types[i]];
+            }
+
+            boardMap = [];
+            boardMap[1] = 'start';
+            for (let i = 2; i <= 63; i++) {
+                boardMap[i] = types[i-2];
+            }
+            boardMap[64] = 'end';
+        }
+
+        function renderBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+            
+            // 蛇形排列：第8行(頂部) 到 第1行(底部)
+            for (let row = 7; row >= 0; row--) {
+                for (let col = 0; col < 8; col++) {
+                    // 計算數字 1-64
+                    let cellNum;
+                    if (row % 2 === 0) {
+                        cellNum = row * 8 + col + 1; // 從左到右
+                    } else {
+                        cellNum = row * 8 + (7 - col) + 1; // 從右到左
+                    }
+
+                    const cellType = boardMap[cellNum];
+                    
+                    const cellDiv = document.createElement('div');
+                    cellDiv.className = 'board-cell';
+                    cellDiv.id = 'cell-' + cellNum;
+
+                    // 上色
+                    if (cellType === 'challenge') cellDiv.classList.add('bg-challenge');
+                    else if (cellType === 'trap') cellDiv.classList.add('bg-trap');
+                    else if (cellType === 'start') cellDiv.classList.add('bg-start');
+                    else if (cellType === 'end') cellDiv.classList.add('bg-end');
+                    else cellDiv.classList.add('bg-normal'); // Fallback
+
+                    // 數字標籤
+                    const numLabel = document.createElement('div');
+                    numLabel.className = 'cell-number';
+                    numLabel.innerText = cellNum;
+                    cellDiv.appendChild(numLabel);
+
+                    // 特殊圖示 (減少視覺負擔，稍微透明)
+                    if (cellType === 'challenge') {
+                        const icon = document.createElement('div');
+                        icon.innerText = '🔥';
+                        icon.className = 'text-xl opacity-30 absolute';
+                        cellDiv.appendChild(icon);
+                    } else if (cellType === 'trap') {
+                        const icon = document.createElement('div');
+                        icon.innerText = '🕳️';
+                        icon.className = 'text-xl opacity-30 absolute';
+                        cellDiv.appendChild(icon);
+                    }
+
+                    board.appendChild(cellDiv);
+                }
+            }
+
+            // 放置玩家初始位置
+            players.forEach(p => {
+                const piece = document.createElement('div');
+                piece.id = 'piece-' + p.id;
+                piece.className = 'piece';
+                piece.innerText = p.emoji;
+                document.getElementById('cell-1').appendChild(piece);
+            });
+        }
+
+        function updateTurnIndicator() {
+            const p = players[currentPlayerIndex];
+            document.getElementById('turn-indicator').innerHTML = `👉 ${p.emoji}`;
+        }
+
+        function rollDice() {
+            if (isMoving) return;
+            isMoving = true;
+
+            const dice = document.getElementById('dice-emoji');
+            const resultDisplay = document.getElementById('dice-result');
+            
+            dice.classList.add('shaking');
+            dice.innerText = '🎲';
+            resultDisplay.innerText = '...';
+
+            setTimeout(() => {
+                dice.classList.remove('shaking');
+                const roll = Math.floor(Math.random() * 6) + 1;
+                
+                // 將數字轉換為骰子面 emoji 作為視覺回饋 (可選，這裡用簡單的數字或保持骰子)
+                const diceFaces = ['🎲', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+                dice.innerText = diceFaces[roll];
+                resultDisplay.innerText = `+${roll}`;
+
+                movePlayer(roll);
+            }, 500);
+        }
+
+        function movePlayer(steps) {
+            let p = players[currentPlayerIndex];
+            let currentStep = 0;
+            const pieceElement = document.getElementById('piece-' + p.id);
+
+            const moveInterval = setInterval(() => {
+                if (currentStep >= steps || p.pos >= 64) {
+                    clearInterval(moveInterval);
+                    handleCellLanding();
+                    return;
+                }
+
+                currentStep++;
+                p.pos++;
+                if (p.pos > 64) p.pos = 64;
+
+                // 跳動動畫與移動
+                pieceElement.classList.add('hopping');
+                document.getElementById('cell-' + p.pos).appendChild(pieceElement);
+                
+                setTimeout(() => {
+                    pieceElement.classList.remove('hopping');
+                }, 300); // 動畫時間短於 interval 時間
+
+            }, 400); // 每步間隔
+        }
+
+        function handleCellLanding() {
+            const p = players[currentPlayerIndex];
+            if (p.pos === 64) {
+                showWin();
+                return;
+            }
+
+            const cellType = boardMap[p.pos];
+            if (cellType === 'challenge' && !isTrapAction) {
+                showChallenge();
+            } else if (cellType === 'trap' && !isTrapAction) {
+                showTrap();
+            } else {
+                // 普通格或完成後退
+                isTrapAction = false;
+                nextTurn();
+            }
+        }
+
+        // --- 挑戰邏輯 ---
+        function getChallengeText() {
+            let text = CHALLENGES_DB[Math.floor(Math.random() * CHALLENGES_DB.length)];
+            if (text.includes('X')) {
+                const randNum = Math.floor(Math.random() * 5) + 3; // 3 到 7
+                text = text.replace('X', randNum);
+            }
+            return text;
+        }
+
+        function getRandomWords(count) {
+            let shuffled = [...WORDS_DB].sort(() => 0.5 - Math.random());
+            return shuffled.slice(0, count);
+        }
+
+        function showChallenge() {
+            const p = players[currentPlayerIndex];
+            document.getElementById('challenge-text').innerText = getChallengeText();
+            
+            const wordsContainer = document.getElementById('target-words');
+            wordsContainer.innerHTML = '';
+            
+            // 隨機抽取 4-5 個詞
+            const wordCount = Math.random() > 0.5 ? 4 : 5;
+            const selectedWords = getRandomWords(wordCount);
+            
+            selectedWords.forEach(word => {
+                const span = document.createElement('span');
+                span.className = 'bg-white text-gray-700 px-3 py-1 rounded-full text-lg shadow-sm border border-gray-100 font-bold';
+                span.innerText = word;
+                wordsContainer.appendChild(span);
+            });
+
+            document.getElementById('challenge-modal').classList.remove('hidden');
+        }
+
+        function resolveChallenge(success) {
+            document.getElementById('challenge-modal').classList.add('hidden');
+            
+            if (success) {
+                // 成功完成，前進一格
+                const p = players[currentPlayerIndex];
+                if (p.pos < 64) {
+                    p.pos++;
+                    const pieceElement = document.getElementById('piece-' + p.id);
+                    pieceElement.classList.add('hopping');
+                    document.getElementById('cell-' + p.pos).appendChild(pieceElement);
+                    setTimeout(() => {
+                        pieceElement.classList.remove('hopping');
+                        if(p.pos === 64) showWin();
+                        else nextTurn();
+                    }, 400);
+                    return;
+                }
+            }
+            nextTurn();
+        }
+
+        // --- 陷阱邏輯 ---
+        let trapSteps = 0;
+        function showTrap() {
+            trapSteps = Math.floor(Math.random() * 3) + 3; // 3, 4, 5
+            document.getElementById('trap-text').innerText = `-${trapSteps}`;
+            document.getElementById('trap-modal').classList.remove('hidden');
+        }
+
+        function resolveTrap() {
+            document.getElementById('trap-modal').classList.add('hidden');
+            isTrapAction = true; // 標記為陷阱後退，避免連鎖反應
+            
+            let p = players[currentPlayerIndex];
+            let currentStep = 0;
+            const pieceElement = document.getElementById('piece-' + p.id);
+
+            const moveInterval = setInterval(() => {
+                if (currentStep >= trapSteps || p.pos <= 1) {
+                    clearInterval(moveInterval);
+                    handleCellLanding(); // 會因為 isTrapAction 為 true 而直接 nextTurn
+                    return;
+                }
+
+                currentStep++;
+                p.pos--;
+                if (p.pos < 1) p.pos = 1;
+
+                pieceElement.classList.add('hopping');
+                document.getElementById('cell-' + p.pos).appendChild(pieceElement);
+                
+                setTimeout(() => {
+                    pieceElement.classList.remove('hopping');
+                }, 300);
+
+            }, 400);
+        }
+
+        function nextTurn() {
+            document.getElementById('dice-emoji').innerText = '🎲';
+            document.getElementById('dice-result').innerText = '';
+            currentPlayerIndex = (currentPlayerIndex + 1) % playerCount;
+            updateTurnIndicator();
+            isMoving = false;
+            isTrapAction = false;
+        }
+
+        function showWin() {
+            document.getElementById('winner-emoji').innerText = players[currentPlayerIndex].emoji;
+            document.getElementById('win-modal').classList.remove('hidden');
+        }
+
+        // 啟動初始化
+        window.onload = initSetup;
+
+    </script>
+</body>
+</html>
