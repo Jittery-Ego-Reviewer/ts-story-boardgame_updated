@@ -93,7 +93,6 @@
             animation: shake 0.5s;
         }
 
-        /* UI 元素 */
         .emoji-btn {
             font-size: 2rem;
             cursor: pointer;
@@ -163,7 +162,7 @@
     <div id="game-screen" class="w-full max-w-4xl hidden flex-col items-center">
         
         <div class="w-full flex justify-between items-center mb-4 px-4 bg-white/60 rounded-2xl p-2 shadow-sm">
-            <h1 class="text-2xl font-bold text-amber-600 hidden md:block">🗣️ 發音大挑戰 🎲</h1>
+            <h1 class="text-2xl font-bold text-amber-600 hidden md:block">🗣️ 之音大挑戰 🎲</h1>
             <div id="turn-indicator" class="text-3xl font-bold bg-white px-6 py-2 rounded-full shadow text-amber-800 flex items-center gap-2 transition-all">
                 <!-- 輪到誰 -->
             </div>
@@ -503,7 +502,7 @@
                 dice.classList.remove('shaking');
                 const roll = Math.floor(Math.random() * 6) + 1;
                 
-                // 將數字轉換為骰子面 emoji 作為視覺回饋 (可選，這裡用簡單的數字或保持骰子)
+                // 將數字轉換為骰子面 emoji 作為視覺回饋
                 const diceFaces = ['🎲', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
                 dice.innerText = diceFaces[roll];
                 resultDisplay.innerText = `+${roll}`;
@@ -547,12 +546,19 @@
             }
 
             const cellType = boardMap[p.pos];
-            if (cellType === 'challenge' && !isTrapAction) {
+            
+            // 【修改核心一】：倒退後，如果中了挑戰格，仍需挑戰！
+            // 只要目前踩中的是挑戰格，不論是否剛退後，都會觸發挑戰。
+            if (cellType === 'challenge') {
+                isTrapAction = false; // 重置陷阱狀態，以確保後續行動正常
                 showChallenge();
-            } else if (cellType === 'trap' && !isTrapAction) {
+            } 
+            // 【保護機制】：如果是陷阱，且「不是剛剛倒退過來的」，才觸發陷阱，避免連續陷入死循環。
+            else if (cellType === 'trap' && !isTrapAction) {
                 showTrap();
-            } else {
-                // 普通格或完成後退
+            } 
+            else {
+                // 普通格，或已經完成一次陷阱倒退並停在非挑戰格
                 isTrapAction = false;
                 nextTurn();
             }
@@ -626,23 +632,24 @@
 
         function resolveTrap() {
             document.getElementById('trap-modal').classList.add('hidden');
-            isTrapAction = true; // 標記為陷阱後退，避免連鎖反應
+            isTrapAction = true; // 標記為陷阱後退，避免連鎖陷阱反應
             
             let p = players[currentPlayerIndex];
             let currentStep = 0;
             const pieceElement = document.getElementById('piece-' + p.id);
 
             const moveInterval = setInterval(() => {
+                // 【修改核心二】：第一次中陷阱，倒退不能超過起點。
+                // 若已經到達或低於第1格 (起點)，強制停止退後，防止棋子掉出地圖。
                 if (currentStep >= trapSteps || p.pos <= 1) {
                     clearInterval(moveInterval);
-                    handleCellLanding(); // 會因為 isTrapAction 為 true 而直接 nextTurn
+                    handleCellLanding(); 
                     return;
                 }
 
                 currentStep++;
                 p.pos--;
-                if (p.pos < 1) p.pos = 1;
-
+                
                 pieceElement.classList.add('hopping');
                 document.getElementById('cell-' + p.pos).appendChild(pieceElement);
                 
