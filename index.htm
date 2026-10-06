@@ -305,9 +305,84 @@
         let isMoving = false;
         let isTrapAction = false; // 標記是否正在處理陷阱後退
 
+        // Audio (WebAudio) - 用於平板及行動裝置，不依賴外部檔案，避免跨域/host問題
+        let audioCtx = null;
+        let masterGain = null;
+        let audioUnlocked = false;
+
+        function initAudio() {
+            if (audioCtx) return;
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                masterGain = audioCtx.createGain();
+                masterGain.gain.value = 0.18; // 主音量
+                masterGain.connect(audioCtx.destination);
+
+                // Some mobile browsers require resume() from a user gesture
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume().then(() => { audioUnlocked = true; }).catch(() => { audioUnlocked = false; });
+                } else {
+                    audioUnlocked = true;
+                }
+
+                // Ensure audio is unlocked on next user gesture as a fallback
+                const unlock = () => {
+                    if (!audioCtx) return;
+                    if (audioCtx.state === 'suspended') {
+                        audioCtx.resume();
+                    }
+                    audioUnlocked = true;
+                    window.removeEventListener('pointerdown', unlock);
+                    window.removeEventListener('touchstart', unlock);
+                };
+                window.addEventListener('pointerdown', unlock, { once: true });
+                window.addEventListener('touchstart', unlock, { once: true });
+            } catch (e) {
+                console.warn('Audio init failed', e);
+            }
+        }
+
+        function playTone({type='sine', freq=440, duration=0.12, volume=0.8}){
+            if (!audioCtx || !audioUnlocked) return;
+            try {
+                const o = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                o.type = type;
+                o.frequency.value = freq;
+                g.gain.value = 0.0001;
+                o.connect(g);
+                g.connect(masterGain);
+                const now = audioCtx.currentTime;
+                g.gain.setValueAtTime(0.0001, now);
+                g.gain.exponentialRampToValueAtTime(volume, now + 0.01);
+                o.start(now);
+                g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+                o.stop(now + duration + 0.02);
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        function playClick(){ playTone({type:'square', freq:880, duration:0.06, volume:0.08}); }
+        function playDiceStart(){ playTone({type:'sawtooth', freq:220, duration:0.18, volume:0.12}); }
+        function playDiceEnd(){ playTone({type:'sine', freq:660, duration:0.12, volume:0.14}); }
+        function playHop(){ playTone({type:'sine', freq:540, duration:0.08, volume:0.1}); }
+        function playTrapSound(){ playTone({type:'triangle', freq:160, duration:0.22, volume:0.12}); }
+        function playChallengeSound(){ playTone({type:'sine', freq:720, duration:0.18, volume:0.12}); }
+        function playWinSound(){
+            // small arpeggio
+            playTone({type:'sine', freq:880, duration:0.12, volume:0.12});
+            setTimeout(()=> playTone({type:'sine', freq:1100, duration:0.12, volume:0.12}), 120);
+            setTimeout(()=> playTone({type:'sine', freq:1320, duration:0.2, volume:0.14}), 260);
+        }
+
         // 初始化設定畫面
         function initSetup() {
             renderPlayerSetup();
+
+            // Try to init audio on first visible user gesture to satisfy autoplay policies on tablet browsers
+            window.addEventListener('pointerdown', () => initAudio(), { once: true });
+            window.addEventListener('touchstart', () => initAudio(), { once: true });
         }
 
         function setPlayerCount(count) {
@@ -347,7 +422,7 @@
                     const btn = document.createElement('div');
                     btn.className = 'emoji-btn bg-white text-2xl';
                     btn.innerText = e;
-                    btn.onclick = () => selectEmoji(i, e, btn, grid);
+                    btn.onclick = () => { initAudio(); selectEmoji(i, e, btn, grid); playClick(); };
                     grid.appendChild(btn);
                 });
 
@@ -392,6 +467,8 @@
                 setTimeout(() => container.classList.remove('shaking'), 500);
                 return;
             }
+
+            initAudio(); // unlock audio on explicit start button click
 
             document.getElementById('setup-screen').classList.add('hidden');
             document.getElementById('game-screen').classList.remove('hidden');
@@ -491,12 +568,16 @@
             if (isMoving) return;
             isMoving = true;
 
+            initAudio(); // ensure audio unlocked on dice roll gesture
+
             const dice = document.getElementById('dice-emoji');
             const resultDisplay = document.getElementById('dice-result');
             
             dice.classList.add('shaking');
             dice.innerText = '🎲';
             resultDisplay.innerText = '...';
+
+            playDiceStart();
 
             setTimeout(() => {
                 dice.classList.remove('shaking');
@@ -506,6 +587,8 @@
                 const diceFaces = ['🎲', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
                 dice.innerText = diceFaces[roll];
                 resultDisplay.innerText = `+${roll}`;
+
+                playDiceEnd();
 
                 movePlayer(roll);
             }, 500);
@@ -530,6 +613,9 @@
                 // 跳動動畫與移動
                 pieceElement.classList.add('hopping');
                 document.getElementById('cell-' + p.pos).appendChild(pieceElement);
+
+                // play hop sound for each step (short)
+                playHop();
                 
                 setTimeout(() => {
                     pieceElement.classList.remove('hopping');
@@ -541,6 +627,7 @@
         function handleCellLanding() {
             const p = players[currentPlayerIndex];
             if (p.pos === 64) {
+                playWinSound();
                 showWin();
                 return;
             }
@@ -551,10 +638,12 @@
             // 只要目前踩中的是挑戰格，不論是否剛退後，都會觸發挑戰。
             if (cellType === 'challenge') {
                 isTrapAction = false; // 重置陷阱狀態，以確保後續行動正常
+                playChallengeSound();
                 showChallenge();
             } 
             // 【保護機制】：如果是陷阱，且「不是剛剛倒退過來的」，才觸發陷阱，避免連續陷入死循環。
             else if (cellType === 'trap' && !isTrapAction) {
+                playTrapSound();
                 showTrap();
             } 
             else {
@@ -611,9 +700,11 @@
                     const pieceElement = document.getElementById('piece-' + p.id);
                     pieceElement.classList.add('hopping');
                     document.getElementById('cell-' + p.pos).appendChild(pieceElement);
+                    // small sound when moving forward due to success
+                    playHop();
                     setTimeout(() => {
                         pieceElement.classList.remove('hopping');
-                        if(p.pos === 64) showWin();
+                        if(p.pos === 64) { playWinSound(); showWin(); }
                         else nextTurn();
                     }, 400);
                     return;
@@ -652,6 +743,9 @@
                 
                 pieceElement.classList.add('hopping');
                 document.getElementById('cell-' + p.pos).appendChild(pieceElement);
+                
+                // play hop sound for each backward step
+                playHop();
                 
                 setTimeout(() => {
                     pieceElement.classList.remove('hopping');
